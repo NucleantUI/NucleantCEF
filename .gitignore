@@ -60,3 +60,12 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# NucleantCEF
+#
+# The CEF binary distribution — fetched by scripts/fetch_cef.py, never
+# committed (hundreds of MB).
+Dependencies/
+
+# Not tracked in any Nucleant package: each consumer resolves its own graph.
+Package.resolved
