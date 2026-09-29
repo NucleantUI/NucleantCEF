@@ -149,6 +149,62 @@ public extension CEFLifeSpanHandler where Self: CEFBrowser {
     }
 }
 
+/// Calls a page makes to `window.cefQuery` — CEF's message router, the
+/// counterpart of WebKit's script message handlers. Every page has it:
+///
+/// ```js
+/// window.cefQuery({
+///     request: JSON.stringify({ save: "notes.txt", text }),
+///     onSuccess: (response) => { … },
+///     onFailure: (code, message) => { … },
+/// });
+/// ```
+///
+/// A query is taken by returning true from `queryReceived`, and answered
+/// then or later through the `CEFQuery` — once, or for a persistent query
+/// (`persistent: true` on the page) as often as there is something to send,
+/// until it fails or is canceled. A query not taken fails on the page with
+/// code -1; that is what every query gets by default.
+@MainActor
+public protocol CEFQueryHandler: AnyObject {
+    func queryReceived(_ query: CEFQuery) -> Bool
+    /// A query that was taken and not finished has gone — the page canceled
+    /// it, navigated, or its renderer ended. Answers to it are ignored.
+    func queryCanceled(id: Int64)
+}
+
+public extension CEFQueryHandler {
+    func queryReceived(_ query: CEFQuery) -> Bool { false }
+    func queryCanceled(id: Int64) {}
+}
+
+/// One call to `window.cefQuery`, and the way to answer it.
+@MainActor
+public struct CEFQuery {
+    /// Unique among this browser's queries.
+    public let id: Int64
+    /// The `request` string the page passed.
+    public let request: String
+    /// The address of the frame that asked — check it before trusting the
+    /// request, as with any message from a page.
+    public let frameURL: String
+    public let isMainFrame: Bool
+    /// Stays open after an answer, until it fails or is canceled.
+    public let isPersistent: Bool
+
+    weak var base: CEFBrowserBase?
+
+    /// The page's onSuccess gets `response`. Finishes a one-off query.
+    public func succeed(_ response: String = "") {
+        base?.succeedQuery(id, response: response)
+    }
+
+    /// The page's onFailure gets `code` and `message`. Finishes the query.
+    public func fail(code: Int = 0, message: String) {
+        base?.failQuery(id, code: code, message: message)
+    }
+}
+
 /// `cef_log_severity_t`, as console messages report it.
 public enum CEFLogSeverity: Int, Sendable {
     case `default` = 0, verbose = 1, info = 2, warning = 3, error = 4, fatal = 5, disabled = 99
@@ -174,7 +230,8 @@ public enum CEFLogSeverity: Int, Sendable {
 ///
 /// `CEFWebPage` is a ready-made one.
 @MainActor
-public protocol CEFBrowserModel: CEFBrowser, CEFDisplayHandler, CEFLoadHandler, CEFLifeSpanHandler, TextureSource {}
+public protocol CEFBrowserModel: CEFBrowser, CEFDisplayHandler, CEFLoadHandler, CEFLifeSpanHandler, CEFQueryHandler,
+    TextureSource {}
 
 public extension CEFBrowserModel {
     func textureDidChange(_ texture: ViewTexture) {

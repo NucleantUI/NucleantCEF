@@ -115,6 +115,21 @@ typedef struct ncef_client_callbacks {
     /// windowless browser has nowhere to put it — so this is the model's
     /// chance to do something else with `target_url`, e.g. load it here.
     void (*before_popup)(void* userdata, const char* target_url);
+
+    // Queries from the page (CefMessageRouter).
+
+    /// A page called `window.cefQuery({ request, persistent, onSuccess,
+    /// onFailure })` with a string `request`. Return 1 to take it — then
+    /// answer with `ncef_browser_query_succeed` / `_fail`, now or later: once
+    /// for a one-off query, any number of times for a persistent one until
+    /// it fails or is canceled. Return 0 to leave it, and the page's
+    /// onFailure gets -1.
+    int (*query)(void* userdata, int64_t query_id, const char* request, const char* frame_url,
+                 int is_main_frame, int persistent);
+    /// A query taken and not finished has gone: the page canceled it
+    /// (`window.cefQueryCancel`), navigated, or its renderer ended. Answers
+    /// to it are ignored from now on.
+    void (*query_canceled)(void* userdata, int64_t query_id);
 } ncef_client_callbacks;
 
 typedef struct ncef_browser_options {
@@ -161,6 +176,15 @@ typedef enum {
 } ncef_edit_command;
 
 void ncef_browser_edit(ncef_browser* browser, ncef_edit_command command);
+
+/// Answer a query taken in `query`: the page's onSuccess gets `response`.
+/// Finishes a one-off query; a persistent one stays open. Ignored for a
+/// query that is finished, canceled or unknown.
+void ncef_browser_query_succeed(ncef_browser* browser, int64_t query_id, const char* response);
+
+/// Fail a query taken in `query`: the page's onFailure gets `error_code` and
+/// `message`. Finishes the query, persistent or not.
+void ncef_browser_query_fail(ncef_browser* browser, int64_t query_id, int error_code, const char* message);
 
 void ncef_browser_set_zoom_level(ncef_browser* browser, double level);
 double ncef_browser_zoom_level(ncef_browser* browser);

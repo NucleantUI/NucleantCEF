@@ -10,6 +10,7 @@
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 #include <crt_externs.h>
+#include <map>
 #include <string>
 
 #include "include/cef_app.h"
@@ -20,7 +21,9 @@
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_render_handler.h"
+#include "include/cef_request_handler.h"
 #include "include/wrapper/cef_library_loader.h"
+#include "include/wrapper/cef_message_router.h"
 
 #include "ncef.h"
 
@@ -165,18 +168,39 @@ namespace {
 /// One browser's handlers. Every entry point checks `detached_` first: once
 /// the Swift owner has let go (`ncef_browser_release`) its userdata is gone,
 /// and CEF may still be delivering to this object while the browser closes.
+///
+/// Each client has its own browser side of CEF's message router — the page's
+/// `window.cefQuery`, whose renderer side the helper installs (see
+/// NucleantCEFHelper/main.cc; both use the default configuration). The
+/// client is the router's only handler, and keeps the callbacks of the
+/// queries it has taken until they are answered or canceled.
 class NCefClient : public CefClient,
                    public CefRenderHandler,
                    public CefDisplayHandler,
                    public CefLoadHandler,
-                   public CefLifeSpanHandler {
+                   public CefLifeSpanHandler,
+                   public CefRequestHandler,
+                   public CefMessageRouterBrowserSide::Handler {
 public:
-    explicit NCefClient(const ncef_client_callbacks& callbacks) : cb_(callbacks) {}
+    explicit NCefClient(const ncef_client_callbacks& callbacks)
+        : cb_(callbacks), router_(CefMessageRouterBrowserSide::Create(CefMessageRouterConfig())) {
+        router_->AddHandler(this, false);
+    }
+
+    ~NCefClient() override {
+        if (!handler_removed_) router_->RemoveHandler(this);
+    }
 
     CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
     CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
     CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
+    CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
+
+    bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+                                  CefProcessId source_process, CefRefPtr<CefProcessMessage> message) override {
+        return router_->OnProcessMessageReceived(browser, frame, source_process, message);
+    }
 
     // Owner side.
 
@@ -209,6 +233,61 @@ public:
         } else {
             pending_focus_ = focus ? 1 : 0;
         }
+    }
+
+    void QuerySucceed(int64_t query_id, const std::string& response) {
+        auto it = queries_.find(query_id);
+        if (it == queries_.end()) return;
+        CefRefPtr<Callback> callback = it->second.callback;
+        if (!it->second.persistent) queries_.erase(it);
+        callback->Success(response);
+    }
+
+    void QueryFail(int64_t query_id, int error_code, const std::string& message) {
+        auto it = queries_.find(query_id);
+        if (it == queries_.end()) return;
+        CefRefPtr<Callback> callback = it->second.callback;
+        queries_.erase(it);
+        callback->Failure(error_code, message);
+    }
+
+    // CefMessageRouterBrowserSide::Handler.
+
+    bool OnQuery(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, int64_t query_id,
+                 const CefString& request, bool persistent, CefRefPtr<Callback> callback) override {
+        if (detached_ || !cb_.query) return false;
+        // Kept before Swift sees it, so an answer given from inside the
+        // callback finds it.
+        queries_[query_id] = PendingQuery{callback, persistent};
+        int taken = cb_.query(cb_.userdata, query_id, request.ToString().c_str(),
+                              frame->GetURL().ToString().c_str(), frame->IsMain() ? 1 : 0,
+                              persistent ? 1 : 0);
+        auto it = queries_.find(query_id);
+        if (it == queries_.end()) return true;  // already answered for good
+        if (!taken) {
+            queries_.erase(it);
+            return false;
+        }
+        return true;
+    }
+
+    void OnQueryCanceled(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, int64_t query_id) override {
+        if (queries_.erase(query_id) && !detached_ && cb_.query_canceled) {
+            cb_.query_canceled(cb_.userdata, query_id);
+        }
+    }
+
+    // CefRequestHandler — what the router needs to hear about.
+
+    bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest>,
+                        bool, bool) override {
+        router_->OnBeforeBrowse(browser, frame);
+        return false;
+    }
+
+    void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser, TerminationStatus, int,
+                                   const CefString&) override {
+        router_->OnRenderProcessTerminated(browser);
     }
 
     // CefRenderHandler.
@@ -326,14 +405,25 @@ public:
         if (cb_.after_created) cb_.after_created(cb_.userdata);
     }
 
-    void OnBeforeClose(CefRefPtr<CefBrowser>) override {
+    void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
+        router_->OnBeforeClose(browser);
+        router_->RemoveHandler(this);
+        handler_removed_ = true;
         browser_ = nullptr;
         closed_ = true;
         if (!detached_ && cb_.before_close) cb_.before_close(cb_.userdata);
     }
 
 private:
+    struct PendingQuery {
+        CefRefPtr<Callback> callback;
+        bool persistent;
+    };
+
     ncef_client_callbacks cb_;
+    CefRefPtr<CefMessageRouterBrowserSide> router_;
+    bool handler_removed_ = false;
+    std::map<int64_t, PendingQuery> queries_;
     CefRefPtr<CefBrowser> browser_;
     bool detached_ = false;
     bool closed_ = false;
@@ -426,6 +516,15 @@ extern "C" void ncef_browser_edit(ncef_browser* browser, ncef_edit_command comma
         case NCEF_EDIT_PASTE: frame->Paste(); break;
         case NCEF_EDIT_SELECT_ALL: frame->SelectAll(); break;
     }
+}
+
+extern "C" void ncef_browser_query_succeed(ncef_browser* browser, int64_t query_id, const char* response) {
+    if (browser) browser->client->QuerySucceed(query_id, response ? response : "");
+}
+
+extern "C" void ncef_browser_query_fail(ncef_browser* browser, int64_t query_id, int error_code,
+                                        const char* message) {
+    if (browser) browser->client->QueryFail(query_id, error_code, message ? message : "");
 }
 
 extern "C" void ncef_browser_set_zoom_level(ncef_browser* browser, double level) {

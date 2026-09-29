@@ -80,7 +80,7 @@ It then drives the real UI with AppKit events (`NSApp.sendEvent`, the path real 
 | `NucleantUI` | `TextField` and `.onSubmit`, in SwiftUI's shape. Key focus goes to whichever view was last pressed (a text field or a `TextureView`), and the Edit menu's commands follow it. |
 | `CNucleantCEF` | A small C API (`ncef.h`) over CEF's C++ wrapper. Callbacks carry an `Unmanaged` pointer to the Swift side. |
 | `CEFWrapper` | CEF's `libcef_dll_wrapper`, compiled straight from the distribution. No CMake step. |
-| `NucleantCEFHelper` | The sub-process executable (renderer, GPU, utility). |
+| `NucleantCEFHelper` | The sub-process executable (renderer, GPU, utility). In a renderer it installs `window.cefQuery`. |
 | `NucleantCEF` | The Swift API: `CEFRuntime`, the protocols, `CEFWebPage`, `CEFView`. |
 
 ### Protocols
@@ -89,6 +89,7 @@ Same shape as NucleantThorVG's `ThorPaint` / `ThorShape`: a protocol names the h
 
 - **`CEFBrowser`** covers commands: `load`, `goBack`, `goForward`, `reload`, `stopLoading`, `evaluateJavaScript`, `zoomLevel`, `perform(.copy)` and so on.
 - **`CEFDisplayHandler`, `CEFLoadHandler`, `CEFLifeSpanHandler`** cover what CEF reports. Every method has a no-op default.
+- **`CEFQueryHandler`** receives the page's calls to `window.cefQuery`, CEF's message router and its counterpart of WebKit's script message handlers. Return true from `queryReceived` to take a query, then answer it through the `CEFQuery`, straight away or later. A query that isn't taken fails on the page with -1, which is the default.
 - **`CEFBrowserModel`** combines them all with `TextureSource`. Any `@Observable` class conforming to it works with `CEFView`. `CEFWebPage` is the ready-made one.
 
 ## Runtime

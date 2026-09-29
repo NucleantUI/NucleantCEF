@@ -112,6 +112,8 @@ public final class CEFBrowserBase {
         var browserDidOpen: () -> Void
         var browserDidClose: () -> Void
         var newWindowRequested: (String) -> Void
+        var queryReceived: (CEFQuery) -> Bool
+        var queryCanceled: (Int64) -> Void
     }
 
     private var handlers: Handlers?
@@ -131,7 +133,9 @@ public final class CEFBrowserBase {
             loadDidFail: { [weak model] in model?.loadDidFail(url: $0, code: $1, description: $2) },
             browserDidOpen: { [weak model] in model?.browserDidOpen() },
             browserDidClose: { [weak model] in model?.browserDidClose() },
-            newWindowRequested: { [weak model] in model?.newWindowRequested($0) }
+            newWindowRequested: { [weak model] in model?.newWindowRequested($0) },
+            queryReceived: { [weak model] in model?.queryReceived($0) ?? false },
+            queryCanceled: { [weak model] in model?.queryCanceled(id: $0) }
         )
     }
 
@@ -155,6 +159,16 @@ public final class CEFBrowserBase {
     func close() {
         guard let handle else { return }
         ncef_browser_close(handle, 0)
+    }
+
+    func succeedQuery(_ id: Int64, response: String) {
+        guard let handle else { return }
+        response.withCString { ncef_browser_query_succeed(handle, id, $0) }
+    }
+
+    func failQuery(_ id: Int64, code: Int, message: String) {
+        guard let handle else { return }
+        message.withCString { ncef_browser_query_fail(handle, id, Int32(code), $0) }
     }
 
     static func closeAll() {
@@ -565,6 +579,26 @@ public final class CEFBrowserBase {
             DispatchQueue.main.async { [weak base] in
                 MainActor.assumeIsolated { base?.handlers?.newWindowRequested(url) }
             }
+        }
+        callbacks.query = { userdata, id, request, frameURL, isMainFrame, persistent in
+            let base = CEFBrowserBase.from(userdata)
+            let request = String(cString: request!)
+            let frameURL = String(cString: frameURL!)
+            return MainActor.assumeIsolated {
+                let query = CEFQuery(
+                    id: id,
+                    request: request,
+                    frameURL: frameURL,
+                    isMainFrame: isMainFrame != 0,
+                    isPersistent: persistent != 0,
+                    base: base
+                )
+                return base.handlers?.queryReceived(query) == true ? 1 : 0
+            }
+        }
+        callbacks.query_canceled = { userdata, id in
+            let base = CEFBrowserBase.from(userdata)
+            MainActor.assumeIsolated { base.handlers?.queryCanceled(id) }
         }
         return callbacks
     }
