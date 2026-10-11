@@ -22,8 +22,9 @@ import NucleantUI
 ///
 /// Built on `TextureView`: every frame CEF renders is copied, GPU to GPU,
 /// into the view's own texture as it arrives, so nothing in the view tree
-/// rebuilds for a page to animate. Give it a `.frame` — it takes the space
-/// it is offered.
+/// rebuilds for a page to animate. In the browser build the page is an
+/// `<iframe>` laid over the view instead, drawn by the browser the app runs
+/// in. Give it a `.frame` — it takes the space it is offered.
 @View
 public struct CEFView<Model: CEFBrowserModel> {
     let model: Model

@@ -1,5 +1,5 @@
 //
-//  CEFKeyMap.swift
+//  CEFKeyMap+MacOS.swift
 //  NucleantCEF
 //
 //  macOS virtual key codes (`NSEvent.keyCode`, the kVK_* constants) to what
@@ -9,6 +9,7 @@
 //  table.
 //
 
+#if os(macOS)
 import NucleantUI
 
 enum CEFKeyMap {
@@ -76,3 +77,4 @@ enum CEFKeyMap {
         0x62: 0x76, 0x64: 0x77, 0x65: 0x78, 0x6D: 0x79, 0x67: 0x7A, 0x6F: 0x7B,
     ]
 }
+#endif

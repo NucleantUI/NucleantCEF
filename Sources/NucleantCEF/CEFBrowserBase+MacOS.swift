@@ -1,8 +1,9 @@
 //
-//  CEFBrowserBase.swift
+//  CEFBrowserBase+MacOS.swift
 //  NucleantCEF
 //
-//  One CEF browser, and the glue between it and a `TextureView`:
+//  One CEF browser, and the glue between it and a `TextureView` — the
+//  desktop's browser view (the browser build's is CEFBrowserBase+Web.swift):
 //
 //    * Frames. CEF renders off-screen and hands each frame over in
 //      `OnAcceleratedPaint` as an IOSurface from a pool of two, valid only
@@ -26,46 +27,11 @@
 //  stops every callback), so no retain is needed to keep it valid.
 //
 
+#if os(macOS)
 import AppKit
 import IOSurface
 import NucleantUI
 import CNucleantCEF
-
-/// How a browser renders.
-public struct CEFBrowserOptions: Sendable {
-    /// GPU frames (IOSurfaces) when true — the fast path. False takes CEF's
-    /// CPU buffer instead, for a machine where the GPU path misbehaves.
-    public var sharedTexture: Bool
-    /// Frames per second, 1…60.
-    public var frameRate: Int
-    /// Page background, ARGB, shown where the page draws nothing. Opaque
-    /// white is a browser's usual; clear lets the view behind show through.
-    public var backgroundColor: UInt32
-
-    public init(sharedTexture: Bool = true, frameRate: Int = 60, backgroundColor: UInt32 = 0xFFFF_FFFF) {
-        self.sharedTexture = sharedTexture
-        self.frameRate = frameRate
-        self.backgroundColor = backgroundColor
-    }
-}
-
-/// What a browser's frames have cost so far — for telling the GPU path from
-/// the CPU fallback, and for seeing what a frame's copy takes.
-public struct CEFFrameStatistics: Sendable {
-    /// Frames that arrived as IOSurfaces and were copied GPU to GPU.
-    public var acceleratedFrames = 0
-    /// Frames that arrived as CPU buffers.
-    public var softwareFrames = 0
-    /// Time spent copying frames into the view's texture, waiting for the
-    /// GPU included, in seconds — in total, and the longest single copy.
-    public var totalCopyTime: Double = 0
-    public var longestCopyTime: Double = 0
-
-    public var averageCopyTime: Double {
-        let frames = acceleratedFrames + softwareFrames
-        return frames > 0 ? totalCopyTime / Double(frames) : 0
-    }
-}
 
 @MainActor
 public final class CEFBrowserBase {
@@ -101,42 +67,12 @@ public final class CEFBrowserBase {
 
     // MARK: - Model binding
 
-    /// The model's handlers, as closures bound once by `attach(to:)`.
-    private struct Handlers {
-        var addressDidChange: (String) -> Void
-        var titleDidChange: (String) -> Void
-        var loadingProgressDidChange: (Double) -> Void
-        var consoleMessage: (String, CEFLogSeverity, String, Int) -> Void
-        var loadingStateDidChange: (Bool, Bool, Bool) -> Void
-        var loadDidFail: (String, Int, String) -> Void
-        var browserDidOpen: () -> Void
-        var browserDidClose: () -> Void
-        var newWindowRequested: (String) -> Void
-        var queryReceived: (CEFQuery) -> Bool
-        var queryCanceled: (Int64) -> Void
-    }
+    private var handlers: CEFHandlers?
 
-    private var handlers: Handlers?
-
-    /// Route CEF's events to `model`'s handlers. Weakly: the model holds this
-    /// base, not the other way round. Once per base.
+    /// Route CEF's events to `model`'s handlers. Once per base.
     func attach<Model: CEFBrowserModel>(to model: Model) {
         guard handlers == nil else { return }
-        handlers = Handlers(
-            addressDidChange: { [weak model] in model?.addressDidChange($0) },
-            titleDidChange: { [weak model] in model?.titleDidChange($0) },
-            loadingProgressDidChange: { [weak model] in model?.loadingProgressDidChange($0) },
-            consoleMessage: { [weak model] in model?.consoleMessage($0, level: $1, source: $2, line: $3) },
-            loadingStateDidChange: { [weak model] in
-                model?.loadingStateDidChange(isLoading: $0, canGoBack: $1, canGoForward: $2)
-            },
-            loadDidFail: { [weak model] in model?.loadDidFail(url: $0, code: $1, description: $2) },
-            browserDidOpen: { [weak model] in model?.browserDidOpen() },
-            browserDidClose: { [weak model] in model?.browserDidClose() },
-            newWindowRequested: { [weak model] in model?.newWindowRequested($0) },
-            queryReceived: { [weak model] in model?.queryReceived($0) ?? false },
-            queryCanceled: { [weak model] in model?.queryCanceled(id: $0) }
-        )
+        handlers = CEFHandlers(model)
     }
 
     // MARK: - Commands
@@ -159,6 +95,39 @@ public final class CEFBrowserBase {
     func close() {
         guard let handle else { return }
         ncef_browser_close(handle, 0)
+    }
+
+    func goBack() {
+        withHandle { ncef_browser_go_back($0) }
+    }
+
+    func goForward() {
+        withHandle { ncef_browser_go_forward($0) }
+    }
+
+    func reload(ignoringCache: Bool) {
+        withHandle { ncef_browser_reload($0, ignoringCache ? 1 : 0) }
+    }
+
+    func stopLoading() {
+        withHandle { ncef_browser_stop_load($0) }
+    }
+
+    func evaluateJavaScript(_ script: String, sourceURL: String) {
+        withHandle { handle in
+            script.withCString { code in
+                sourceURL.withCString { ncef_browser_execute_javascript(handle, code, $0) }
+            }
+        }
+    }
+
+    var zoomLevel: Double {
+        get { withHandle { ncef_browser_zoom_level($0) } ?? 0 }
+        set { withHandle { ncef_browser_set_zoom_level($0, newValue) } }
+    }
+
+    func perform(_ command: EditCommand) {
+        withHandle { ncef_browser_edit($0, command.cValue) }
     }
 
     func succeedQuery(_ id: Int64, response: String) {
@@ -214,6 +183,10 @@ public final class CEFBrowserBase {
             ncef_browser_invalidate(handle)
         }
     }
+
+    /// Nothing to do: CEF renders into the texture, which goes wherever the
+    /// view goes.
+    func textureDidMove(_ texture: ViewTexture) {}
 
     func textureDidDisappear(_ texture: ViewTexture) {
         guard self.texture === texture else { return }
@@ -607,3 +580,17 @@ public final class CEFBrowserBase {
         Unmanaged<CEFBrowserBase>.fromOpaque(userdata!).takeUnretainedValue()
     }
 }
+
+extension EditCommand {
+    var cValue: ncef_edit_command {
+        switch self {
+        case .undo:      NCEF_EDIT_UNDO
+        case .redo:      NCEF_EDIT_REDO
+        case .cut:       NCEF_EDIT_CUT
+        case .copy:      NCEF_EDIT_COPY
+        case .paste:     NCEF_EDIT_PASTE
+        case .selectAll: NCEF_EDIT_SELECT_ALL
+        }
+    }
+}
+#endif

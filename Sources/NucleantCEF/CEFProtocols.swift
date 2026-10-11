@@ -11,7 +11,6 @@
 //
 
 import NucleantUI
-import CNucleantCEF
 
 // MARK: - The browser
 
@@ -36,60 +35,43 @@ public extension CEFBrowser {
     }
 
     func goBack() {
-        base.withHandle { ncef_browser_go_back($0) }
+        base.goBack()
     }
 
     func goForward() {
-        base.withHandle { ncef_browser_go_forward($0) }
+        base.goForward()
     }
 
     func reload(ignoringCache: Bool = false) {
-        base.withHandle { ncef_browser_reload($0, ignoringCache ? 1 : 0) }
+        base.reload(ignoringCache: ignoringCache)
     }
 
     func stopLoading() {
-        base.withHandle { ncef_browser_stop_load($0) }
+        base.stopLoading()
     }
 
     /// Run `script` in the main frame. Fire-and-forget: CEF has no result
     /// path for this; a page that needs to answer does it through a load or
     /// a console message.
     func evaluateJavaScript(_ script: String, sourceURL: String = "") {
-        base.withHandle { handle in
-            script.withCString { code in
-                sourceURL.withCString { ncef_browser_execute_javascript(handle, code, $0) }
-            }
-        }
+        base.evaluateJavaScript(script, sourceURL: sourceURL)
     }
 
     /// Chromium's zoom level: 0 is 100%, each step of 1 is 20% more or less.
     var zoomLevel: Double {
-        get { base.withHandle { ncef_browser_zoom_level($0) } ?? 0 }
-        set { base.withHandle { ncef_browser_set_zoom_level($0, newValue) } }
+        get { base.zoomLevel }
+        set { base.zoomLevel = newValue }
     }
 
     /// An editing command on the focused frame.
     func perform(_ command: EditCommand) {
-        base.withHandle { ncef_browser_edit($0, command.cValue) }
+        base.perform(command)
     }
 
     /// Close the browser. A model that is simply dropped closes its browser
     /// too; this is for closing one the model outlives.
     func close() {
         base.close()
-    }
-}
-
-extension EditCommand {
-    var cValue: ncef_edit_command {
-        switch self {
-        case .undo:      NCEF_EDIT_UNDO
-        case .redo:      NCEF_EDIT_REDO
-        case .cut:       NCEF_EDIT_CUT
-        case .copy:      NCEF_EDIT_COPY
-        case .paste:     NCEF_EDIT_PASTE
-        case .selectAll: NCEF_EDIT_SELECT_ALL
-        }
     }
 }
 
@@ -237,6 +219,10 @@ public extension CEFBrowserModel {
     func textureDidChange(_ texture: ViewTexture) {
         base.attach(to: self)
         base.textureDidChange(texture)
+    }
+
+    func textureDidMove(_ texture: ViewTexture) {
+        base.textureDidMove(texture)
     }
 
     func textureDidDisappear(_ texture: ViewTexture) {

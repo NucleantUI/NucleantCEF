@@ -1,12 +1,14 @@
 //
-//  CEFRuntime.swift
+//  CEFRuntime+MacOS.swift
 //  NucleantCEF
 //
 //  CEF's browser process, as a NucleantUI app hosts it: loaded and
 //  initialized on the first browser, pumped from the main run loop, shut down
-//  when the app terminates.
+//  when the app terminates. (The browser build has no process of its own to
+//  run: CEFRuntime+Web.swift.)
 //
 
+#if os(macOS)
 import AppKit
 import CNucleantCEF
 
@@ -253,3 +255,4 @@ enum CEFMessagePump {
         isPerformingWork = false
     }
 }
+#endif
