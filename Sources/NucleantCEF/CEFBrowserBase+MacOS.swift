@@ -151,13 +151,13 @@ public final class CEFBrowserBase {
 
     /// The texture frames are written into — `nil` while no view shows this
     /// browser.
-    public private(set) var texture: ViewTexture?
+    public private(set) var texture: ViewTexture<NucleantRenderNode>?
 
     /// The view's size in points, rounded up — the browser's view rect.
     private var viewSize: (width: Int, height: Int) = (1, 1)
     private var scale: Double = 1
 
-    func textureDidChange(_ texture: ViewTexture) {
+    func textureDidChange(_ texture: ViewTexture<NucleantRenderNode>) {
         let shown = self.texture == nil
         self.texture = texture
         let size = (
@@ -186,9 +186,9 @@ public final class CEFBrowserBase {
 
     /// Nothing to do: CEF renders into the texture, which goes wherever the
     /// view goes.
-    func textureDidMove(_ texture: ViewTexture) {}
+    func textureDidMove(_ texture: ViewTexture<NucleantRenderNode>) {}
 
-    func textureDidDisappear(_ texture: ViewTexture) {
+    func textureDidDisappear(_ texture: ViewTexture<NucleantRenderNode>) {
         guard self.texture === texture else { return }
         self.texture = nil
         popup = nil

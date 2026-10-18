@@ -41,8 +41,9 @@ oninput="document.title='typed:'+this.value">\
 @main
 struct NucleantCEFDemo: NucleantApp {
     var body: some Scene {
-        WindowGroup("NucleantCEF Browser", width: 1100, height: 760) {
+        WindowGroup("NucleantCEF Browser") {
             BrowserScreen()
         }
+        .defaultSize(width: 1100, height: 760)
     }
 }

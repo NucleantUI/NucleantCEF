@@ -4,7 +4,8 @@
 import Foundation
 import PackageDescription
 
-/// Build against the sibling checkouts (`../NucleantUI`) or against GitHub.
+/// Build against the sibling checkouts (`../NucleantUI`) or against each
+/// repo's releases on GitHub (`getDependencies()`).
 ///
 /// Decided the same way in every Nucleant package, so one setting covers the
 /// whole chain: `NUCLEANT_LOCAL_DEV=1|0` in the environment wins; otherwise
@@ -29,11 +30,18 @@ func getDependencies() -> [Package.Dependency] {
     // NucleantApplication for its `Platform_Wasm`, which NucleantUI already
     // depends on; the browser build names it to import `BrowserFrame`.
     let names = isWasm ? ["NucleantUI", "NucleantApplication"] : ["NucleantUI"]
-    return names.map { name in
-        devMode
-            ? .package(path: "../\(name)")
-            : .package(url: "https://github.com/NucleantUI/\(name).git", branch: "master")
+    if devMode {
+        return names.map { .package(path: "../\($0)") }
     }
+    // Each by version, up to its next minor: its new 0.0.x releases are
+    // picked up as they come; its 0.1.0 only once its line here is moved to it.
+    var dependencies: [Package.Dependency] = [
+        .package(url: "https://github.com/NucleantUI/NucleantUI.git", .upToNextMinor(from: "0.0.1")),
+    ]
+    if isWasm {
+        dependencies.append(.package(url: "https://github.com/NucleantUI/NucleantApplication.git", .upToNextMinor(from: "0.0.1")))
+    }
+    return dependencies
 }
 
 /// The CEF binary distribution, unpacked by `scripts/fetch_cef.py` — macOS

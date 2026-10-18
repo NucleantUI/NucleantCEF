@@ -131,29 +131,29 @@ public final class CEFBrowserBase {
 
     /// The view's texture — `nil` while no view shows this browser. Nothing
     /// is written into it: it marks where the iframe goes.
-    public private(set) var texture: ViewTexture?
+    public private(set) var texture: ViewTexture<NucleantRenderNode>?
 
     /// All zero: no frame passes through the app.
     public private(set) var statistics = CEFFrameStatistics()
 
-    func textureDidChange(_ texture: ViewTexture) {
+    func textureDidChange(_ texture: ViewTexture<NucleantRenderNode>) {
         self.texture = texture
         if frame == nil { create() }
         place(texture)
     }
 
-    func textureDidMove(_ texture: ViewTexture) {
+    func textureDidMove(_ texture: ViewTexture<NucleantRenderNode>) {
         guard self.texture === texture else { return }
         place(texture)
     }
 
-    func textureDidDisappear(_ texture: ViewTexture) {
+    func textureDidDisappear(_ texture: ViewTexture<NucleantRenderNode>) {
         guard self.texture === texture else { return }
         self.texture = nil
         updateVisibility()
     }
 
-    private func place(_ texture: ViewTexture) {
+    private func place(_ texture: ViewTexture<NucleantRenderNode>) {
         guard let frame, let window = texture.browserWindowID else { return }
         let rect = texture.frame, visible = texture.visibleFrame
         frame.place(

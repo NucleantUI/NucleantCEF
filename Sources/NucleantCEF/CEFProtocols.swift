@@ -213,19 +213,19 @@ public enum CEFLogSeverity: Int, Sendable {
 /// `CEFWebPage` is a ready-made one.
 @MainActor
 public protocol CEFBrowserModel: CEFBrowser, CEFDisplayHandler, CEFLoadHandler, CEFLifeSpanHandler, CEFQueryHandler,
-    TextureSource {}
+    TextureSource where Node == NucleantRenderNode {}
 
 public extension CEFBrowserModel {
-    func textureDidChange(_ texture: ViewTexture) {
+    func textureDidChange(_ texture: ViewTexture<NucleantRenderNode>) {
         base.attach(to: self)
         base.textureDidChange(texture)
     }
 
-    func textureDidMove(_ texture: ViewTexture) {
+    func textureDidMove(_ texture: ViewTexture<NucleantRenderNode>) {
         base.textureDidMove(texture)
     }
 
-    func textureDidDisappear(_ texture: ViewTexture) {
+    func textureDidDisappear(_ texture: ViewTexture<NucleantRenderNode>) {
         base.textureDidDisappear(texture)
     }
 
