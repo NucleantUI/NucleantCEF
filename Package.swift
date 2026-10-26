@@ -7,17 +7,12 @@ import PackageDescription
 /// Build against the sibling checkouts (`../NucleantUI`) or against each
 /// repo's releases on GitHub (`getDependencies()`).
 ///
-/// Decided the same way in every Nucleant package, so one setting covers the
-/// whole chain: `NUCLEANT_LOCAL_DEV=1|0` in the environment wins; otherwise
-/// local when the sibling checkout exists next to this package — true in a
-/// development tree, false for a clone SwiftPM made under `.build/checkouts`.
-let devMode: Bool = {
-    if let flag = ProcessInfo.processInfo.environment["NUCLEANT_LOCAL_DEV"] {
-        return ["1", "true", "yes"].contains(flag.lowercased())
-    }
-    let siblings = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-    return FileManager.default.fileExists(atPath: siblings.appendingPathComponent("NucleantUI").path)
-}()
+/// GitHub unless `NUCLEANT_LOCAL_DEV=1` is in the environment: the sibling
+/// checkouts are used only when that turns them on, never just because they
+/// are there.
+let devMode: Bool = ["1", "true", "yes"].contains(
+    (ProcessInfo.processInfo.environment["NUCLEANT_LOCAL_DEV"] ?? "").lowercased()
+)
 
 /// WebAssembly (`WASM_BUILD=1`, the opt-in every Nucleant package reads): the
 /// page the app runs in is a browser already, so `NucleantCEF` there is an
